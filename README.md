@@ -1,127 +1,268 @@
-GLITCH AI Trading Bot is an automated trading agent designed for the Solana blockchain using the Pump Swap SDK. It monitors liquidity pools, executes trades based on configurable AI-driven strategies, and tracks rewards, fees, and PnL in real-time.
+# GLITCH AI Trading Bot
 
-The bot supports dry-run mode for safe testing and a live mode for actual trading, with built-in safeguards like slippage limits, retries, and risk controls.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)  
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/yourusername/glitch-ai-trading-bot)  
 
-Features
+## Overview
 
-AI-powered strategy: reacts to pool price changes and market signals
+**GLITCH AI Trading Bot** is an automated trading agent designed for the Solana blockchain using the **Pump Swap SDK**. It monitors liquidity pools, executes trades based on configurable AI-driven strategies, and tracks rewards, fees, and PnL in real-time.  
 
-Dry-run mode: simulate trades safely without touching your wallet
+Dry-run mode is available for testing, and live mode can execute trades safely with retries, slippage control, and risk management.
 
-Creator rewards aware: automatically tracks and accounts for creator fees
+## Features
 
-Pool monitoring: fetches real-time pool state, base/quote reserves, and prices
+- AI-powered strategy (placeholder)
+- Dry-run trading mode
+- Creator-fee aware (placeholder)
+- Pool monitoring
+- Multi-mode execution
+- Retry & backoff
 
-Multi-mode execution: one-off cycles or continuous monitoring
+## Architecture
 
-Retry & backoff: robust to transient RPC errors or network issues
-
-Architecture
 ┌───────────────┐
-│   Frontend UI │  (Optional Dashboard)
+│ Frontend UI │
 └───────┬───────┘
-        │ WebSocket / REST API
+│ WebSocket / REST API
 ┌───────▼───────┐
 │ Backend Trader│ Node.js / TypeScript
-│  - AI Strategy│
-│  - Pump SDK   │
-│  - Solana RPC │
+│ - AI Strategy│
+│ - Pump SDK │
+│ - Solana RPC │
 └───────┬───────┘
-        │ Solana Transactions
+│ Solana Transactions
 ┌───────▼───────┐
 │ Solana Network│ On-chain Pools & Liquidity
 └───────────────┘
 
-Installation
+bash
+Kopiera kod
 
-Prerequisites:
+## Installation
 
-Node.js 18+
-
-npm or yarn
-
-Solana wallet keypair
-
+```bash
 git clone https://github.com/yourusername/glitch-ai-trading-bot.git
 cd glitch-ai-trading-bot
 npm install
-
 Environment Variables
+Create a .env file:
 
-Create a .env file or set environment variables in your system:
-
-PRIVATE_KEY_JSON='[12,34,...]'       # Your wallet secret key array
+env
+Kopiera kod
+PRIVATE_KEY_JSON='[12,34,...]'
 RPC_URL='https://api.devnet.solana.com'
 POOL_KEY='F1sherPool1234567890'
-DRY_RUN=true                          # true = simulate trades, false = live trading
-INTERVAL_MS=5000                      # Polling interval in milliseconds
-THRESHOLD_PCT=0.003                   # Price movement threshold (0.3%)
-MAX_RETRIES=3                          # Retry attempts for transactions
-BACKOFF_BASE_MS=1000                   # Base for exponential backoff
-
-
-Note: Never commit .env or private keys to GitHub.
-
+DRY_RUN=true
+INTERVAL_MS=5000
+THRESHOLD_PCT=0.003
+MAX_RETRIES=3
+BACKOFF_BASE_MS=1000
 Usage
+Dry-run single cycle:
 
-Dry-run single cycle (safe demo):
-
+bash
+Kopiera kod
 ts-node src/auto-trader-pump-swap.ts --rpc https://api.devnet.solana.com --poolKey <POOL_PUBKEY> --dry-run --once
-
-
 Continuous trading loop (dry-run):
 
+bash
+Kopiera kod
 ts-node src/auto-trader-pump-swap.ts --rpc https://api.devnet.solana.com --poolKey <POOL_PUBKEY> --dry-run
-
-
 Live trading (experimental, use with caution):
 
-ts-node src/auto-trader-pump-swap.ts --rpc https://api.mainnet-beta.solana.com --poolKey <POOL_PUBKEY> --dry-run false
-
-CLI Options
-Option	Description
---rpc	Solana RPC endpoint URL (required)
---poolKey	Public key of the pool to monitor (required)
---wallet	Path to keypair file or use PRIVATE_KEY_JSON env variable
---dry-run	Simulate trades without sending transactions (default: true)
---once	Run a single cycle and exit
---interval	Polling interval in milliseconds (default: 5000)
---thresholdPct	Price movement threshold for trading signals (default: 0.003)
---maxRetries	Max retry attempts for failed transactions (default: 3)
---backoffBaseMs	Base delay for exponential backoff in ms (default: 1000)
-Safety & Best Practices
-
-Always test on devnet with --dry-run=true before using mainnet.
-
-Never expose your wallet private key publicly.
-
-Set realistic slippage and trade size limits to avoid losses.
-
-Monitor metrics: trade attempts, successes, failures, and signals.
-
-Use backtesting or simulation mode to evaluate your strategy.
-
+bash
+Kopiera kod
+ts-node src/auto-trader-pump-swap.ts --rpc <RPC_URL> --poolKey <POOL_PUBKEY> --dry-run false
 Contributing
-
-Contributions are welcome!
-
 Fork the repo
 
 Create a feature branch: git checkout -b feature/my-feature
 
-Commit your changes: git commit -m "Add new strategy"
+Commit changes: git commit -m "Add new feature"
 
-Push to branch: git push origin feature/my-feature
+Push: git push origin feature/my-feature
 
-Open a Pull Request
+Open a PR
 
 License
+MIT License
 
-This project is licensed under the MIT License — see LICENSE
- for details.
+yaml
+Kopiera kod
 
-Acknowledgements
+---
 
-Pump Swap SDK
+### 2. `.env.example`
 
-Solana Blockchain & Web3.js
+```env
+PRIVATE_KEY_JSON='[12,34,...]'
+RPC_URL='https://api.devnet.solana.com'
+POOL_KEY='F1sherPool1234567890'
+DRY_RUN=true
+INTERVAL_MS=5000
+THRESHOLD_PCT=0.003
+MAX_RETRIES=3
+BACKOFF_BASE_MS=1000
+3. package.json
+json
+Kopiera kod
+{
+  "name": "glitch-ai-trading-bot",
+  "version": "0.1.0",
+  "description": "Automated AI trading bot for Pump Swap on Solana",
+  "main": "src/auto-trader-pump-swap.ts",
+  "scripts": {
+    "start": "ts-node src/auto-trader-pump-swap.ts",
+    "dev": "ts-node-dev src/auto-trader-pump-swap.ts",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@pump-fun/pump-swap-sdk": "^1.0.0",
+    "@solana/web3.js": "^1.73.0",
+    "dotenv": "^16.0.0",
+    "pino": "^8.0.0",
+    "minimist": "^1.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "ts-node": "^10.9.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0"
+  },
+  "license": "MIT"
+}
+4. tsconfig.json
+json
+Kopiera kod
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}
+5. src/auto-trader-pump-swap.ts (placeholder)
+ts
+Kopiera kod
+console.log("GLITCH AI Trading Bot started (placeholder)");
+// Your trading logic goes here
+6. src/strategy/momentumStrategy.ts (placeholder)
+ts
+Kopiera kod
+export function runMomentumStrategy() {
+    console.log("Running momentum strategy (placeholder)");
+}
+7. src/strategy/arbitrageStrategy.ts (placeholder)
+ts
+Kopiera kod
+export function runArbitrageStrategy() {
+    console.log("Running arbitrage strategy (placeholder)");
+}
+8. src/strategy/aiDecisionMaker.ts (placeholder)
+ts
+Kopiera kod
+export function makeAIDecision() {
+    console.log("AI decision logic placeholder");
+    return { action: "none" };
+}
+9. src/utils/solanaHelpers.ts (placeholder)
+ts
+Kopiera kod
+export function connectToSolana() {
+    console.log("Connecting to Solana (placeholder)");
+}
+10. tests/trader.test.ts (placeholder)
+ts
+Kopiera kod
+describe('Trader', () => {
+  it('should run placeholder test', () => {
+    expect(true).toBe(true);
+  });
+});
+11. .github/ISSUE_TEMPLATE.md
+md
+Kopiera kod
+---
+name: Bug report
+about: Report a bug
+---
+
+**Describe the bug**
+A clear description of the issue.
+
+**Steps to Reproduce**
+1. ...
+2. ...
+3. ...
+
+**Expected behavior**
+...
+12. .github/PULL_REQUEST_TEMPLATE.md
+md
+Kopiera kod
+## Description
+Please include a summary of the change and which issue is fixed.
+
+## Type of change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation update
+- [ ] Other
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] Tests added/updated
+- [ ] Documentation updated
+13. .github/workflows/nodejs.yml
+yaml
+Kopiera kod
+name: Node.js CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm install
+      - run: npm run build --if-present
+      - run: npm test
+14. docker/Dockerfile (placeholder)
+dockerfile
+Kopiera kod
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+CMD ["ts-node", "src/auto-trader-pump-swap.ts", "--dry-run"]
+15. docker/docker-compose.yml (placeholder)
+yaml
+Kopiera kod
+version: "3.8"
+services:
+  bot:
+    build: .
+    environment:
+      - PRIVATE_KEY_JSON=${PRIVATE_KEY_JSON}
+      - RPC_URL=${RPC_URL}
+      - POOL_KEY=${POOL_KEY}
+    command: ts-node src/auto-trader-pump-swap.ts --dry-run
