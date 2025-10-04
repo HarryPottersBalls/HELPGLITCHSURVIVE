@@ -1,0 +1,114 @@
+/**
+ * auto-trader-pump-swap.ts
+ *
+ * Auto-trader for Pump Swap SDK (demo-ready)
+ * - Dry-run default (no on-chain transactions)
+ * - Uses PumpAmmSdk + PumpAmmInternalSdk as described in the spec you provided
+ * - Simple "momentum micro-trade" strategy:
+ *     * Watches a pool's mid-price
+ *     * When price moves beyond a configurable threshold (relative), submit buy or sell to capture movement
+ * - Robustness: retries, exponential backoff, metrics, logging, rate-limit handling
+ *
+ * Usage:
+ *   # install deps (example)
+ *   npm install @pump-fun/pump-swap-sdk @solana/web3.js pino minimist
+ *
+ *   # run dry-run single cycle:
+ *   ts-node auto-trader-pump-swap.ts --rpc https://api.devnet.solana.com --poolKey <POOL_PUBKEY> --dry-run --once
+ *
+ * Env:
+ *   PRIVATE_KEY_JSON = JSON array of secret key bytes (58-length for solana, or use local file)
+ *
+ * IMPORTANT: adapt types and method names if Pump SDK surface differs from the demo spec.
+ */
+
+import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import Pino from "pino";
+import minimist from "minimist";
+import assert from "assert";
+
+// -- THESE IMPORTS ASSUME THE SDK NAMES YOU PROVIDED --
+// Adjust paths/names if actual SDK exports are different.
+import {
+  PumpAmmSdk,
+  PumpAmmInternalSdk,
+  // PumpAmmAdminSdk if needed
+} from "@pump-fun/pump-swap-sdk";
+
+// --------------------------------------------------
+// Config and CLI parsing
+// --------------------------------------------------
+const argv = minimist(process.argv.slice(2), {
+  boolean: ["dry-run", "once", "help"],
+  string: ["rpc", "poolKey", "wallet"],
+  default: {
+    "dry-run": true,
+    interval: 5000,
+    thresholdPct: 0.003, // 0.3% move
+    maxRetries: 3,
+    backoffBaseMs: 1000,
+  },
+});
+
+if (argv.help) {
+  console.log(`
+Usage: ts-node auto-trader-pump-swap.ts [options]
+
+Options:
+  --rpc <url>            Solana RPC url (required)
+  --poolKey <pubkey>     Pool public key to monitor (required)
+  --wallet <path|env>    Path to local keypair file OR leave to use env PRIVATE_KEY_JSON
+  --dry-run              Default true. If false, will attempt real transactions.
+  --once                 Run a single check/execute cycle and exit.
+  --interval <ms>        Polling interval in ms (default 5000)
+  --thresholdPct <float> Relative price move to trigger (default 0.003 = 0.3%)
+  --maxRetries <int>     Number of retries for tx submission (default 3)
+  --backoffBaseMs <int>  Exponential backoff base in ms (default 1000)
+`);
+  process.exit(0);
+}
+
+const RPC_URL = argv.rpc;
+const POOL_PUBKEY = argv.poolKey;
+const DRY_RUN: boolean = !!argv["dry-run"];
+const ONCE: boolean = !!argv.once;
+const INTERVAL_MS: number = Number(argv.interval);
+const THRESHOLD_PCT: number = Number(argv.thresholdPct);
+const MAX_RETRIES: number = Number(argv.maxRetries);
+const BACKOFF_BASE_MS: number = Number(argv.backoffBaseMs);
+
+if (!RPC_URL || !POOL_PUBKEY) {
+  console.error("Missing --rpc or --poolKey. Run with --help for usage.");
+  process.exit(1);
+}
+
+// --------------------------------------------------
+// Logger
+// --------------------------------------------------
+const logger = Pino({
+  level: "info",
+  prettyPrint: { colorize: true, translateTime: "yyyy-mm-dd HH:MM:ss" },
+});
+
+// --------------------------------------------------
+// Utility & wallet loader
+// --------------------------------------------------
+function loadKeypairFromEnv(): Keypair | null {
+  const json = process.env.PRIVATE_KEY_JSON;
+  if (!json) return null;
+  try {
+    const arr = JSON.parse(json) as number[];
+    return Keypair.fromSecretKey(Uint8Array.from(arr));
+  } catch (e) {
+    logger.error({ err: e }, "Failed to parse PRIVATE_KEY_JSON");
+    return null;
+  }
+}
+
+async function loadKeypair(): Promise<Keypair | null> {
+  if (argv.wallet) {
+    // NOTE: for brevity we do not implement file parsing here; in production parse JSON keypair file.
+    logger.warn("wallet path provided: loading from env is recommended in this demo. Implement file reader if needed.");
+    return loadKeypairFromEnv();
+  }
+  return
