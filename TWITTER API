@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""
+auto_tweeter_demo.py
+
+Demo system for automatic tweeting.
+- Real-looking structure: config, OAuth placeholders, retry/backoff, rate-limit handling, scheduling.
+- Default uses a MockTwitterClient so it runs without real Twitter credentials.
+- CLI flags: --once (run only one cycle), --dry-run (don't actually send), --interval (seconds between cycles)
+"""
+
+from __future__ import annotations
+import time
+import random
+import json
+import logging
+import argparse
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any, Callable
+from datetime import datetime, timezone, timedelta
+
+# ----------- Logging setup -----------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("AutoTweeterDemo")
+
+
+# ----------- Config dataclass -----------
+@dataclass
+class BotConfig:
+    # OAuth placeholders (in a real system you'd fill these securely)
+    api_key: Optional[str] = None
+    api_secret_key: Optional[str] = None
+    access_token: Optional[str] = None
+    access_token_secret: Optional[str] = None
+
+    # Behaviour
+    dry_run: bool = True
+    check_interval_seconds: int = 60
+    max_retries: int = 3
+    backoff_factor_seconds: int = 2
+    timezone: str = "UTC"
+
+    # Content queue (in real life this might be pulled from DB or CMS)
+    initial_queue: List[str] = field(default_factory=lambda: [
+        "Hello world — this is an automated tweet (demo).",
+        "Automating responsibly: include test/dry-run toggles!",
+        "Demo of rate-limiting & retry logic in an auto-tweet system.",
+        "Stats: the demo bot just ran and it's feeling helpful.",
+    ])
+
+
+# ----------- Abstract Twitter client interface -----------
+class TwitterClientInterface:
+    def post_tweet(self, text: str) -> Dict[str, Any]:
+        """Post a tweet and return a response dict. Should raise exceptions on errors."""
+        raise NotImplementedError
+
+
+# ----------- Mock Twitter client (safe) -----------
+class MockTwitterClient(TwitterClientInterface):
+    """
+    Simulates Twitter API responses:
+    - Randomly simulates transient failures (HTTP 500-ish) and rate limits (429).
+    - Successful response includes pseudo 'id' and 'created_at'.
+    """
+
+    def __init__(self, failure_rate: float = 0.1, rate_limit_rate: float = 0.05):
+        self.failure_rate = failure_rate
+        self.rate_limit_rate = rate_limit_rate
+        self._counter = 0
+
+    def post_tweet(self, text: str) -> Dict[str, Any]:
+        self._counter += 1
+        rnd = random.random()
+        # Simulate rate limit
+        if rnd < self.rate_limit_rate:
+            logger.debug("MockTwitterClient: simulating rate limit (429).")
+            raise TwitterRateLimitError(retry_after_seconds=5 + random.randint(0, 5))
+        # Simulate transient server error
+        if rnd < self.failure_rate + self.rate_limit_rate:
+            logger.debug("MockTwitterClient: simulating transient server error (500).")
+            raise TwitterTransientError("Simulated transient error (HTTP 5xx)")
+        # Success
+        tweet_id = 1000000 + self._counter
+        response = {
+            "id": tweet_id,
+            "text": text,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        logger.debug(f"MockTwitterClient: returning success response {response}")
+        return response
+
+
+# ----------- Exceptions -----------
+class TwitterTransientError(Exception):
+    """Transient error (like HTTP 500) — safe to retry."""
+
+
+class TwitterRateLimitError(Exception):
+    """Rate limit error (like HTTP 429)."""
+
+    def __init__(self, retry_after_seconds: int = 30):
+        super().__init__(f"Rate limited. Retry after {retry_after_seconds} seconds.")
+        self.retry_after_seconds = retry_after_seconds
+
+
+# ----------- Real Twitter client skeleton (placeholder) -----------
+class RealTwitterClient(TwitterClientInterface):
+    """
+    This is a skeleton showing where you'd integrate a real library (e.g., tweepy).
+    For safety the demo does not make network calls.
+    """
+
+    def __init__(self, config: BotConfig):
+        # In a real system you would initialize your OAuth session here.
+        # e.g., tweepy.Client(bearer_token=..., consumer_key=..., ...)
+        self.config = config
+        logger.info("RealTwitterClient initialized (skeleton) — not active in demo.")
+
+    def post_tweet(self, text: str) -> Dict[str, Any]:
+        # Placeholder: raise NotImplementedError if actually called
+        raise NotImplementedError("RealTwitterClient is a skeleton in this demo.")
+
+
+# ----------- AutoTweeter logic -----------
+class AutoTweeter:
+    def __init__(self, config: BotConfig, client_factory: Callable[[], TwitterClientInterface]):
+        self.config = config
+        self.client = client_factory()
+        self.queue: List[str] = list(config.initial_queue)
+        self.sent_log: List[Dict[str, Any]] = []
+        self.metrics = {"attempts": 0, "success": 0, "failures": 0, "rate_limited": 0}
+
+    def enqueue(self, text: str) -> None:
+        logger.info("Enqueued tweet: %s", text[:80])
+        self.queue.append(text)
+
+    def _send_with_retries(self, text: str) -> Dict[str, Any]:
+        retries = 0
+        while True:
+            self.metrics["attempts"] += 1
+            try:
+                if self.config.dry_run:
+                    # Dry-run: simulate sending but do not call client
+                    logger.info("(DRY-RUN) Would post: %s", text[:120])
+                    return {"id": "dryrun-" + str(int(time.time())), "text": text, "created_at": datetime.now(timezone.utc).isoformat()}
+                else:
+                    resp = self.client.post_tweet(text)
+                    logger.info("Posted tweet id=%s text=%s", resp.get("id"), text[:80])
+                    return resp
+            except TwitterRateLimitError as e:
+                self.metrics["rate_limited"] += 1
+                wait = getattr(e, "retry_after_seconds", self.config.backoff_factor_seconds)
+                logger.warning("Rate limited. Waiting %s seconds before retrying...", wait)
+                time.sleep(wait)
+                # After sleeping, continue and attempt again (counts as retry)
+                retries += 1
+            except TwitterTransientError as e:
+                self.metrics["failures"] += 1
+                logger.warning("Transient error: %s", e)
+                if retries >= self.config.max_retries:
+                    logger.error("Max retries reached for tweet: %s", text[:80])
+                    raise
+                backoff = self.config.backoff_factor_seconds * (2 ** retries)
+                logger.info("Retrying after backoff %s seconds...", backoff)
+                time.sleep(backoff)
+                retries += 1
+            except Exception as e:
+                # Unexpected error: log and re-raise
+                logger.exception("Unexpected error posting tweet: %s", e)
+                raise
+
+    def run_once(self) -> None:
+        logger.info("Starting one cycle: queue length=%d", len(self.queue))
+        # Simple FIFO queue: try to send up to all queued messages in one run
+        while self.queue:
+            text = self.queue.pop(0)
+            try:
+                resp = self._send_with_retries(text)
+                self.sent_log.append(resp)
+                self.metrics["success"] += 1
+            except Exception as e:
+                logger.error("Failed to send tweet after retries: %s", e)
+                # In a real system you may re-queue with backoff or persist to DB
+                # For demo, we append an informative failure record:
+                failure_record = {"text": text, "error": str(e), "time": datetime.now(timezone.utc).isoformat()}
+                self.sent_log.append(failure_record)
+            # be polite in demo (prevents tight loop)
+            time.sleep(0.5)
+
+        logger.info("One cycle finished. metrics=%s", json.dumps(self.metrics))
+
+    def run_loop(self, interval_seconds: int, max_cycles: Optional[int] = None) -> None:
+        cycle = 0
+        logger.info("Entering run loop. interval=%s seconds, dry_run=%s", interval_seconds, self.config.dry_run)
+        try:
+            while True:
+                cycle += 1
+                logger.info("=== Cycle %d start ===", cycle)
+                self.run_once()
+                logger.info("=== Cycle %d end ===", cycle)
+                if max_cycles is not None and cycle >= max_cycles:
+                    logger.info("Reached max_cycles=%d, stopping loop.", max_cycles)
+                    break
+                logger.info("Sleeping %s seconds until next cycle...", interval_seconds)
+                time.sleep(interval_seconds)
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user. Exiting run loop.")
+        finally:
+            logger.info("Run loop ended. Summary: attempts=%d success=%d failures=%d rate_limited=%d",
+                        self.metrics["attempts"], self.metrics["success"], self.metrics["failures"], self.metrics["rate_limited"])
+
+
+# ----------- Simple CLI and runner -----------
+def build_arg_parser():
+    p = argparse.ArgumentParser(description="AutoTweeter Demo System")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", help="Do not actually call Twitter API (default for demo).")
+    p.add_argument("--live", dest="dry_run", action="store_false", help="Attempt to use the real Twitter client (NOT available in this demo unless implemented).")
+    p.add_argument("--once", dest="once", action="store_true", help="Run a single pass through the queue and exit.")
+    p.add_argument("--interval", type=int, default=60, help="Seconds between scheduled cycles (default 60).")
+    p.add_argument("--max-cycles", type=int, default=None, help="Stop after N cycles (useful for demos).")
+    return p
+
+
+def main(argv=None):
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
+    cfg = BotConfig(
+        dry_run=args.dry_run if args.dry_run is not None else True,
+        check_interval_seconds=args.interval,
+    )
+
+    # Factory chooses mock or real client
+    def client_factory() -> TwitterClientInterface:
+        if cfg.dry_run:
+            # Mock is fine for dry-run
+            return MockTwitterClient(failure_rate=0.12, rate_limit_rate=0.06)
+        else:
+            # In non-dry-run mode you'd return RealTwitterClient(cfg)
+            logger.warning("Non-dry-run selected but RealTwitterClient is skeleton in demo; switching to Mock.")
+            return MockTwitterClient(failure_rate=0.05, rate_limit_rate=0.02)
+
+    bot = AutoTweeter(cfg, client_factory)
+
+    # Example: enqueue a time-stamped promotional message
+    bot.enqueue(f"Automated demo run at {datetime.now(timezone.utc).isoformat()}")
+
+    if args.once:
+        bot.run_once()
+    else:
+        bot.run_loop(cfg.check_interval_seconds, max_cycles=args.max_cycles)
+
+
+# ----------- Minimal unit-demo run when invoked as script -----------
+if __name__ == "__main__":
+    # To keep the demo compact on default runs, use a short interval and single cycle if called directly.
+    import sys
+    # If user passed no args, default to a one-off dry-run demo:
+    if len(sys.argv) == 1:
+        logger.info("No CLI args provided: running a single-cycle dry-run demo.")
+        main(["--dry-run", "--once"])
+    else:
+        main()
