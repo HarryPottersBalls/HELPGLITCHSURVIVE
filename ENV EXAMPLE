@@ -1,0 +1,7 @@
+# Example .env file
+PRIVATE_KEY_JSON='[12,34, ...]'
+RPC_URL='https://api.devnet.solana.com'
+POOL_KEY='F1sherPool1234567890'
+DRY_RUN=true
+INTERVAL_MS=5000
+THRESHOLD_PCT=0.003
